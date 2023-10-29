@@ -1,4 +1,6 @@
-using System.Text.Json;
+using CleannetCodeBot.Twitch.Events;
+using CleannetCodeBot.Twitch.Polls;
+using MassTransit;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
 using TwitchLib.Api.Helix.Models.ChannelPoints.CreateCustomReward;
@@ -14,7 +16,9 @@ public class PollsService : IPollsService
     private readonly ITwitchAPI _twitchApi;
     private readonly ILogger<PollsService> _logger;
     private readonly IOptions<PollSettings> _pollSettings;
+    private readonly IBus _bus;
     private readonly IMongoCollection<Vote> _votesCollection;
+    private readonly IMongoCollection<PollStartRequest> _pollCreatedEventsCollection;
 
     public PollsService(IPollsRepository pollsRepository, 
         IQuestionsRepository questionsRepository,
@@ -22,7 +26,8 @@ public class PollsService : IPollsService
         ITwitchAPI twitchApi, 
         ILogger<PollsService> logger, 
         IOptions<PollSettings> pollSettings,
-        IMongoDatabase mongoDatabase)
+        IMongoDatabase mongoDatabase,
+        IBus bus)
     {
         _pollsRepository = pollsRepository;
         _questionsRepository = questionsRepository;
@@ -30,12 +35,15 @@ public class PollsService : IPollsService
         _twitchApi = twitchApi;
         _logger = logger;
         _pollSettings = pollSettings;
-        
+        _bus = bus;
+
         _votesCollection =  mongoDatabase.GetCollection<Vote>(Vote.CollectionName);;
+        _pollCreatedEventsCollection = mongoDatabase.GetCollection<PollStartRequest>("pollStarted");
     }
 
     public async Task CreatePoll(string userId, string username, string broadCasterId, string authToken)
     {
+        // TODO handle duplicates
         _logger.LogInformation($"Trying create poll by user {userId}");
         if (!_usersPollStartRegistry.AddUserTryRecord(userId, DateTime.UtcNow.AddHours(_pollSettings.Value.UserPollCreationGapInHours))) 
         {
@@ -78,6 +86,10 @@ public class PollsService : IPollsService
         var poll = new Poll(question, broadCasterId, rewardId, userId, DateTime.UtcNow.AddMinutes(_pollSettings.Value.PollDurationInMinutes));
         
         _pollsRepository.AddPoll(poll);
+        await _bus.Publish(new PollStartedEvent(userId, DateTime.UtcNow));
+        
+        await _pollCreatedEventsCollection.InsertOneAsync(new PollStartRequest(userId, username, broadCasterId, authToken));
+        
         _logger.LogInformation($"Poll created by user {userId}");
     }
 
@@ -106,8 +118,11 @@ public class PollsService : IPollsService
             _logger.LogError($"Error occured on deleting custom poll reward: {e.Message}");
             // retry?
         }
+
+        var pollResults = poll.Results();
         
-        await _votesCollection.InsertManyAsync(poll.Results());
+        await _votesCollection.InsertManyAsync(pollResults);
+        await _bus.Publish(new PollEndedEvent(pollResults));
     }
 
     public void AddVoteToPoll(string pollRewardId, string userId, string answer)

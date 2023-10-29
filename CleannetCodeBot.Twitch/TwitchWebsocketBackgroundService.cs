@@ -1,7 +1,11 @@
-﻿using CleannetCodeBot.Twitch.Polls;
+﻿using System.Threading.Channels;
+using CleannetCodeBot.Twitch.Events;
+using CleannetCodeBot.Twitch.Polls;
+using MassTransit;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
+using MongoDB.Driver.Core.Bindings;
 using Polly;
 using Polly.Registry;
 using TwitchLib.Api.Core.Enums;
@@ -23,6 +27,8 @@ public class TwitchWebsocketBackgroundService : BackgroundService
     private readonly EventSubWebsocketClient _eventSubWebsocketClient;
     private readonly IPollsService _pollsService;
     private readonly IOptions<PollSettings> _pollSettings;
+    private readonly IBus _bus;
+    private readonly Channel<PollStartRequest> _pollsQueue;
     private readonly IMongoCollection<TwitchUser> _usersCollection;
     private readonly ResiliencePipeline _resiliencePipeline;
     private const string ChannelRewardRedemption = "channel.channel_points_custom_reward_redemption.add";
@@ -36,7 +42,9 @@ public class TwitchWebsocketBackgroundService : BackgroundService
         EventSubWebsocketClient eventSubWebsocketClient,
         IPollsService pollsService,
         IOptions<PollSettings> pollSettings,
-        IMongoDatabase mongoDatabase)
+        IMongoDatabase mongoDatabase,
+        IBus bus,
+        Channel<PollStartRequest> pollsQueue)
     {
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _memoryCache = memoryCache;
@@ -45,6 +53,8 @@ public class TwitchWebsocketBackgroundService : BackgroundService
         _resiliencePipeline = resiliencePipelineProvider.GetPipeline(ServiceCollectionExtension.RetryResiliencePipeline);
         _pollsService = pollsService;
         _pollSettings = pollSettings;
+        _bus = bus;
+        _pollsQueue = pollsQueue;
         _usersCollection = mongoDatabase.GetCollection<TwitchUser>(TwitchUser.CollectionName);
 
         _eventSubWebsocketClient = eventSubWebsocketClient ?? throw new ArgumentNullException(nameof(eventSubWebsocketClient));
@@ -204,14 +214,9 @@ public class TwitchWebsocketBackgroundService : BackgroundService
         if (eventData.Reward.Title == _pollSettings.Value.RewardTitle)
         {
             _logger.LogInformation("Received start poll command");
-            try
-            {
-                await _pollsService.CreatePoll(eventData.UserId,  eventData.UserName, eventData.BroadcasterUserId, authToken.AccessToken);
-            }
-            catch (Exception exception)
-            {
-                _logger.LogInformation($"Poll creating error: {exception.Message}");
-            }
+
+            await _pollsQueue.Writer.WriteAsync(new PollStartRequest(eventData.UserId, eventData.UserName,
+                eventData.BroadcasterUserId, authToken.AccessToken));
         }
         else if (eventData.Reward.Title.StartsWith("Вопрос от"))
         {
@@ -230,10 +235,13 @@ public class TwitchWebsocketBackgroundService : BackgroundService
                 _logger.LogInformation($"User not found. Creating new one with twitch id {eventData.UserId}");
                 user = new TwitchUser()
                 {
-                    Nickname = eventData.UserLogin,
+                    Username = eventData.UserLogin,
                     TwitchUserId = eventData.UserId
                 };
+                
                 await _usersCollection.InsertOneAsync(user);
+                await _bus.Publish(new UserCreatedEvent(user.TwitchUserId, user.Username));
+                
                 _logger.LogInformation($"User with twitch id {eventData.UserId} created");
             }
         }

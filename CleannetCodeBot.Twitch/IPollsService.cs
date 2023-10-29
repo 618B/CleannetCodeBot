@@ -1,4 +1,4 @@
-namespace CleannetCodeBot.Twitch.Polls;
+namespace CleannetCodeBot.Twitch;
 
 public interface IPollsService
 {
