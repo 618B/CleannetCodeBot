@@ -6,7 +6,7 @@ using MongoDB.Driver;
 using TwitchLib.Api.Helix.Models.ChannelPoints.CreateCustomReward;
 using TwitchLib.Api.Interfaces;
 
-namespace CleannetCodeBot.Twitch.Polls;
+namespace CleannetCodeBot.Twitch;
 
 public class PollsService : IPollsService
 {
