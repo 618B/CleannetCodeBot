@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+    <PropertyGroup>
+        <TargetFramework>net7.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="MassTransit.RabbitMQ" Version="8.1.2-develop.1576" />
+        <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="7.0.0" />
+        <PackageReference Include="MongoDB.Driver" Version="2.22.0" />
+        <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <ProjectReference Include="..\CleannetCodeBot.Twitch.Events\CleannetCodeBot.Twitch.Events.csproj" />
+    </ItemGroup>
+
+</Project>

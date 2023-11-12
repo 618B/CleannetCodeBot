@@ -1,3 +1,4 @@
+using System.Threading.Channels;
 using CleannetCodeBot.Twitch.Polls;
 using Microsoft.Extensions.Caching.Memory;
 
@@ -10,20 +11,23 @@ public class ScheduleBackgroundService : BackgroundService
     private readonly IPollsService _pollsService;
     private readonly IMemoryCache _memoryCache;
     private readonly ILogger<ScheduleBackgroundService> _logger;
-    
-    private readonly TimeSpan _timerResolution = TimeSpan.FromMinutes(1); 
+    private readonly Channel<PollStartRequest> _pollsQueue;
+
+    private readonly TimeSpan _timerResolution = TimeSpan.FromMinutes(5); 
 
     public ScheduleBackgroundService(IPollsRepository pollsRepository, 
         IUsersPollStartRegistry usersPollStartRegistry,
         IPollsService pollsService, 
         IMemoryCache memoryCache,
-        ILogger<ScheduleBackgroundService> logger)
+        ILogger<ScheduleBackgroundService> logger,
+        Channel<PollStartRequest> pollsQueue)
     {
         _pollsRepository = pollsRepository;
         _usersPollStartRegistry = usersPollStartRegistry;
         _pollsService = pollsService;
         _memoryCache = memoryCache;
         _logger = logger;
+        _pollsQueue = pollsQueue;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -32,15 +36,23 @@ public class ScheduleBackgroundService : BackgroundService
         
         using PeriodicTimer timer = new(_timerResolution);
 
-        while (await timer.WaitForNextTickAsync(stoppingToken))
+        while (!stoppingToken.IsCancellationRequested)
         {
-            await DoWork();
+            var pollStartRequest = await _pollsQueue.Reader.ReadAsync(stoppingToken);
+            
+            await _pollsService.CreatePoll(pollStartRequest.UserId, pollStartRequest.Username, pollStartRequest.BroadcasterUserId,
+                pollStartRequest.AccessToken);
+            
+            await timer.WaitForNextTickAsync(stoppingToken);
+            
+            await EndExpiredPolls();
         }
+
 
         _logger.LogInformation("Timed Hosted Service is stopping.");
     }
 
-    private async Task DoWork()
+    private async Task EndExpiredPolls()
     {
         var authToken = _memoryCache.Get<AuthToken>(AuthToken.Key);
 

@@ -1,8 +1,10 @@
 using System.Text;
+using System.Threading.Channels;
 using CleannetCodeBot.Twitch;
 using CleannetCodeBot.Twitch.Controllers;
 using CleannetCodeBot.Twitch.Infrastructure;
 using CleannetCodeBot.Twitch.Polls;
+using MassTransit;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
 using MongoDB.Driver;
@@ -44,6 +46,28 @@ builder.Services.AddSingleton<IQuestionsRepository, QuestionsRepository>();
 builder.Services.AddSingleton<IUsersPollStartRegistry, UsersPollStartRegistry>();
 
 builder.Services.AddSingleton<IPollsService, PollsService>();
+
+builder.Services.AddSingleton<Channel<PollStartRequest>>(sp => Channel.CreateUnbounded<PollStartRequest>());
+
+
+builder.Services.AddMassTransit(x =>
+{
+    x.SetKebabCaseEndpointNameFormatter();
+    
+    
+    x.UsingRabbitMq((hostContext, cfg) =>
+    {
+        var connectionConfig = builder.Configuration.GetSection("RabbitMqConfig");
+        
+        cfg.Host(connectionConfig["Host"], connectionConfig["VirtualHost"], h =>
+        {
+            h.Username(connectionConfig["Username"]);
+            h.Password(connectionConfig["Password"]);
+        });
+        
+        cfg.ConfigureEndpoints(hostContext);
+    });
+});
 
 builder.Services.AddHostedService<TwitchWebsocketBackgroundService>();
 builder.Services.AddHostedService<TwitchBotBackgroundService>();
