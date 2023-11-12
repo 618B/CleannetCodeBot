@@ -15,12 +15,7 @@
     </ItemGroup>
 
     <ItemGroup>
-      <Reference Include="MassTransit">
-        <HintPath>..\..\..\.nuget\packages\masstransit\8.1.1\lib\net7.0\MassTransit.dll</HintPath>
-      </Reference>
-      <Reference Include="MongoDB.Driver">
-        <HintPath>..\..\..\.nuget\packages\mongodb.driver\2.21.0\lib\netstandard2.1\MongoDB.Driver.dll</HintPath>
-      </Reference>
+      <ProjectReference Include="..\CleannetCodeBot.Twitch.Events\CleannetCodeBot.Twitch.Events.csproj" />
     </ItemGroup>
 
 </Project>
